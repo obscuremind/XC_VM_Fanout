@@ -576,6 +576,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		if tok, ok := a.Client.Current(); ok && a.Client.MainNowMs()/1000 >= tok.RefreshAt {
 			a.refreshLater(ctx)
 		}
+		// Before the heartbeat, so a MAIN that cannot be reached still leaves the
+		// node's PHP a fresh statement of what its lease says (lease.go).
+		a.publishLease()
 		hctx, cancel := context.WithTimeout(ctx, MaxHeartbeatGap)
 		r, err := a.Heartbeat(hctx)
 		cancel()

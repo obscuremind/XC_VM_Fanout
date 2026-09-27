@@ -41,7 +41,9 @@ func newBeatMain(t *testing.T, urls ...string) (*beatMain, *Agent) {
 			}
 			return
 		}
-		f.box(w, reqCtx, map[string]any{"state": "active", "mode": 1})
+		// As MAIN answers: every reply carries its clock, which is what the agent
+		// anchors on (anchor.go).
+		f.box(w, reqCtx, map[string]any{"state": "active", "mode": 1, "main_time_ms": time.Now().UnixMilli()})
 	}
 	srv := httptest.NewServer(f)
 	t.Cleanup(srv.Close)

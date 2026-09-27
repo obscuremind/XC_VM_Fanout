@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	cc "github.com/Vateron-Media/XC_VM_Fanout/internal/clustercrypto"
@@ -163,4 +165,49 @@ func LeaseReport(path string, now time.Time) (string, error) {
 	}
 	return fmt.Sprintf("lease: server %d, generation %d\nissued: %d  expires: %d (%d s window)\n%s\n%s\n%s\n",
 		l.ServerID, l.Gen, l.Iat, l.Exp, l.Exp-l.Iat, window, heard, signed), nil
+}
+
+// leaseFile is where the node's PHP reads what this agent holds
+// (Core\Cluster\NodeLease), beside the flows file the same PHP watches. Empty
+// when the agent keeps no flows file either (a test, or MAIN itself).
+func (a *Agent) leaseFile() string {
+	if a.FlowsFile == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(a.FlowsFile), "lease_state.json")
+}
+
+// publishLease writes what this node holds for its PHP to judge by: the lease's
+// window, MAIN's clock as the anchor last had it, and when this was written.
+//
+// It runs on every tick of the heartbeat loop, whether MAIN answered or not,
+// because a node that cannot reach MAIN is exactly when the lease matters and
+// PHP reads a file it has stopped refreshing as "no statement, serve". It
+// carries no verdict: the switch that decides what to do with this is a panel
+// setting the agent does not read.
+func (a *Agent) publishLease() {
+	path := a.leaseFile()
+	if path == "" {
+		return
+	}
+	st := a.Client.State
+	st.mu.Lock()
+	lease, refused := st.Lease, st.LeaseRefused
+	st.mu.Unlock()
+	doc := map[string]any{"wrote_at_ms": a.Client.now().UnixMilli(), "anchor_ms": a.Client.MainAnchorMs()}
+	if lease != nil {
+		doc["exp"], doc["iat"], doc["gen"], doc["server_id"] = lease.Exp, lease.Iat, lease.Gen, lease.ServerID
+	}
+	if refused != "" {
+		doc["refused"] = refused
+	}
+	b, _ := json.Marshal(doc)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o640); err != nil {
+		a.logf("cluster: writing lease state: %v", err)
+		return
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		a.logf("cluster: writing lease state: %v", err)
+	}
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -280,5 +281,54 @@ func TestTheLeaseReportAnswersOnAnUnfinishedNode(t *testing.T) {
 	out, _ = LeaseReport(path, time.Unix(exp+60, 0))
 	if !strings.Contains(out, "expired 1m0s ago") {
 		t.Fatalf("report %q", out)
+	}
+}
+
+// The node's PHP judges the lease from a file this agent refreshes; the point of
+// the increment is that it keeps refreshing it while MAIN cannot be reached,
+// because a file that has gone stale reads as "no statement, serve".
+func TestTheLeaseStateIsPublishedEveryTickEvenWithMainGone(t *testing.T) {
+	m, a := newBeatMain(t)
+	dir := t.TempDir()
+	a.FlowsFile = filepath.Join(dir, "flows.json")
+	a.Interval = 50 * time.Millisecond
+	f := m.fakeMain
+	iat := time.Now().Unix()
+	exp := iat + 13*3600
+	st := a.Client.State
+	if !acceptLease(st, wireLease(f.panel, leaseDoc(st.NodeUUID, st.ServerID, 1, iat, exp), exp)) {
+		t.Fatal(st.LeaseRefused)
+	}
+	runFor(t, a, 400*time.Millisecond)
+
+	read := func() map[string]any {
+		b, err := os.ReadFile(filepath.Join(dir, "lease_state.json"))
+		if err != nil {
+			t.Fatalf("no lease state published: %v", err)
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(b, &doc); err != nil {
+			t.Fatal(err)
+		}
+		return doc
+	}
+	doc := read()
+	if int64(doc["exp"].(float64)) != exp || int64(doc["gen"].(float64)) != 1 {
+		t.Fatalf("published %v", doc)
+	}
+	if int64(doc["anchor_ms"].(float64)) <= 0 {
+		t.Fatalf("no anchor published: %v", doc)
+	}
+	first := int64(doc["wrote_at_ms"].(float64))
+
+	// MAIN gone: the heartbeats fail and the file must still be rewritten.
+	a.Client.State.MainURLs = []string{"http://127.0.0.1:1/cluster/v1/"}
+	runFor(t, a, 400*time.Millisecond)
+	again := read()
+	if int64(again["wrote_at_ms"].(float64)) <= first {
+		t.Fatalf("the file was not refreshed while MAIN was unreachable: %v then %v", first, again["wrote_at_ms"])
+	}
+	if int64(again["exp"].(float64)) != exp {
+		t.Fatalf("the lease changed with MAIN gone: %v", again)
 	}
 }
