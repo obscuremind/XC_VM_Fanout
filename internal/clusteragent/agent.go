@@ -73,6 +73,8 @@ type Agent struct {
 	fenced             atomic.Bool  // MAIN refuses the session for want of a licence
 	acking             atomic.Bool  // sealed commands are being acked
 	httpsFailing       atomic.Bool  // HTTPS fails under https_required (policy.go)
+	nonceOnce          sync.Once    // the data plane's nonce window (dataplane.go)
+	nonces             *nonceCache
 	busyRefusals       atomic.Int64 // ingest lane refusals: MAIN busy, not failing (retry.go)
 	replicaMu          sync.Mutex   // one replica sync or check at a time (replica.go)
 	replicaKeys        string       // the keys the stored records were last checked with (replicaMu)

@@ -18,6 +18,8 @@ import (
 //
 //	POST /v1/main/{op}   body: the op's JSON payload; reply: MAIN's opened reply
 //	/v1/conn/...         the connection registry (registry.go)
+//	POST /v1/nonce       a parent's one-shot nonce window (dataplane.go)
+//	POST /v1/file_digest an owner's signature over what it served (dataplane.go)
 //
 // Only the ops in SocketOps pass. The socket is xc_vm's alone (0660, in the
 // agent's state directory); everything that is only a report goes through
@@ -101,6 +103,12 @@ func (a *Agent) socketHandler() http.Handler {
 				return
 			}
 			a.Registry.connHandler(w, r)
+			return
+		}
+		// The data plane's own helpers (dataplane.go): the node's PHP asking for
+		// a nonce window or a signature with the node key, neither of which it
+		// has. Nothing here reaches MAIN.
+		if a.dataPlaneHandler(w, r) {
 			return
 		}
 		op, ok := strings.CutPrefix(r.URL.Path, "/v1/main/")
