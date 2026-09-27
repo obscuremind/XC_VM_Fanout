@@ -86,7 +86,13 @@ type Client struct {
 	mu       sync.Mutex
 	sessions map[uint64]session
 	offsetMs atomic.Int64 // MAIN time − local time, from authenticated replies
-	now      func() time.Time
+	// anchor is MAIN's clock as a judgement may rely on it: authenticated
+	// statements only, forward only (anchor.go). offsetMs is the looser one.
+	// anchorSaved is the floor last written to the state file, read without the
+	// state's lock.
+	anchor      anchorHolder
+	anchorSaved atomic.Int64
+	now         func() time.Time
 	// failed holds the MAIN URLs that could not be reached (connect, TLS or
 	// timeout), each until it is tried first again (URLRetry).
 	failed map[string]time.Time
@@ -182,6 +188,7 @@ func NewClient(st *State, agent string) *Client {
 		sessions: map[uint64]session{},
 		now:      time.Now,
 	}
+	c.seedAnchor()
 	for _, e := range st.Epochs {
 		c.openEpoch(e)
 	}
@@ -265,8 +272,13 @@ func (c *Client) callVia(ctx context.Context, hc *http.Client, s session, op str
 	return withReplay(ctx, c.setMainTime, func() error { return c.callOnce(ctx, hc, s, op, plain, out, signNode) })
 }
 
-// setMainTime takes MAIN's clock from an authenticated main_time_ms.
-func (c *Client) setMainTime(mainMs int64) { c.offsetMs.Store(mainMs - c.now().UnixMilli()) }
+// setMainTime takes MAIN's clock from an authenticated main_time_ms: a MAC'd
+// reply, a panel-signed denial or a panel-signed re-key document. It moves both
+// the offset requests are stamped with and the anchor a judgement may rely on.
+func (c *Client) setMainTime(mainMs int64) {
+	c.offsetMs.Store(mainMs - c.now().UnixMilli())
+	c.anchorFrom(mainMs)
+}
 
 func (c *Client) callOnce(ctx context.Context, hc *http.Client, s session, op string, plain []byte, out any, signNode bool) error {
 	nonce := make([]byte, 16)

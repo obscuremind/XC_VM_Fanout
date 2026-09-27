@@ -84,6 +84,10 @@ type State struct {
 	// reaching it, as it arrived beside a token (lease.go). Nil until MAIN sends
 	// one; nothing acts on it yet.
 	Lease *Lease `json:"lease,omitempty"`
+	// MainSeenMs is the highest MAIN clock an authenticated statement has
+	// carried, kept so a restart's anchor cannot start further back than the last
+	// time MAIN was heard (anchor.go). Written at most once a minute.
+	MainSeenMs int64 `json:"main_seen_ms,omitempty"`
 	// LeaseRefused is why the last lease MAIN sent was not kept, or "" when the
 	// one held was the last one sent. It is written here rather than logged
 	// because the paths a lease arrives on do not log (the Client is silent by

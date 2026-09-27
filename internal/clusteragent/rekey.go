@@ -266,7 +266,8 @@ func (c *Client) acceptRekey(h http.Header, body, nonce, ephSk []byte) (*cc.Toke
 	}
 	c.mu.Unlock()
 	if doc.MainTimeMs > 0 {
-		c.offsetMs.Store(doc.MainTimeMs - c.now().UnixMilli())
+		// The document is panel-signed, so it anchors as a reply does.
+		c.setMainTime(doc.MainTimeMs)
 	}
 	c.State.mu.Lock()
 	c.State.Epochs = []Epoch{e}

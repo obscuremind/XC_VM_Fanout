@@ -149,6 +149,18 @@ func LeaseReport(path string, now time.Time) (string, error) {
 	if left <= 0 {
 		window = fmt.Sprintf("expired %s ago by this machine's clock, which MAIN does not vouch for", (time.Duration(-left) * time.Second).String())
 	}
-	return fmt.Sprintf("lease: server %d, generation %d\nissued: %d  expires: %d (%d s window)\n%s\n%s\n",
-		l.ServerID, l.Gen, l.Iat, l.Exp, l.Exp-l.Iat, window, signed), nil
+	// And against the clock a judgement would use: MAIN's own, as the last
+	// authenticated statement carried it (anchor.go). A running agent advances
+	// that on its monotonic clock; from the file it is a floor, so what it gives
+	// is how much of the lease was certainly still unspent then.
+	heard := "MAIN has not been heard from on this node yet"
+	if st.MainSeenMs > 0 {
+		unspent := l.Exp - st.MainSeenMs/1000
+		heard = fmt.Sprintf("%s of it was still unspent when MAIN was last heard (%d)", (time.Duration(unspent) * time.Second).String(), st.MainSeenMs/1000)
+		if unspent <= 0 {
+			heard = fmt.Sprintf("already spent when MAIN was last heard (%d)", st.MainSeenMs/1000)
+		}
+	}
+	return fmt.Sprintf("lease: server %d, generation %d\nissued: %d  expires: %d (%d s window)\n%s\n%s\n%s\n",
+		l.ServerID, l.Gen, l.Iat, l.Exp, l.Exp-l.Iat, window, heard, signed), nil
 }
